@@ -3,183 +3,136 @@
 #include <QTRSensors.h>
 
 /////////////////////////////////////////////////////////////////////
-//    Variables globales et fonctions pour le suivi de ligne       //
+//       Variables globales et fonctions pour les moteurs          //
 /////////////////////////////////////////////////////////////////////
 
 // Définition des broches pour les moteurs
-#define borneENA        10      // Broche ENA du L298N connectée à la broche D10 de l'Arduino (PWM possible)
-#define borneIN1        9       // Broche IN1 du L298N connectée à la broche D9 de l'Arduino
-#define borneIN2        8       // Broche IN2 du L298N connectée à la broche D8 de l'Arduino
-#define borneIN3        7       // Broche IN3 du L298N connectée à la broche D7 de l'Arduino
-#define borneIN4        6       // Broche IN4 du L298N connectée à la broche D6 de l'Arduino
-#define borneENB        5       // Broche ENB du L298N connectée à la broche D5 de l'Arduino (PWM possible)
-
-// Définition des constantes du programme
-#define delaiChangementVitesse     00      // Délai en millisecondes avant de changer la vitesse
-#define vitesseMinimale            120     // Rapport cyclique PWM minimal pour le moteur
-#define vitesseMaximale            255     // Rapport cyclique PWM maximal pour le moteur
-#define vitesseRotation            255     // Rapport cyclique PWM maximal pour la rotation
-
-// Définition des broches pour les capteurs
-const int capteurG1 = 24; // Capteur gauche 1
-const int capteurG2 = 25; // Capteur gauche 2
-const int capteurG3 = 22; // Capteur gauche 3
-const int capteurG4 = 23; // Capteur gauche 4
-const int capteurD1 = 53; // Capteur droit 1
-const int capteurD2 = 52; // Capteur droit 2
-const int capteurD3 = 50; // Capteur droit 3
-const int capteurD4 = 51; // Capteur droit 4
-
-// Définition des broches pour les moteurs (GA et GB pour le moteur Gauche, DA et DB pour le moteur de droite)
-const int moteurGA = 12;
-const int moteurGB = 3;
-const int moteurDA = 13;
-const int moteurDB = 11;
-
-// Définition des capteurs de suivit de ligne en suivant le code de la documentation
-const uint8_t SensorCount = 4;
-
-QTRSensors qtrd;
-uint16_t sensorValuesD[SensorCount];
-
-QTRSensors qtrg;
-uint16_t sensorValuesG[SensorCount];
-
+#define borneENA 10   // Broche ENA du L298N connectée à la broche D10 de l'Arduino (PWM possible)
+#define borneIN1 9    // Broche IN1 du L298N connectée à la broche D9 de l'Arduino
+#define borneIN2 8    // Broche IN2 du L298N connectée à la broche D8 de l'Arduino
+#define borneIN3 7    // Broche IN3 du L298N connectée à la broche D7 de l'Arduino
+#define borneIN4 6    // Broche IN4 du L298N connectée à la broche D6 de l'Arduino
+#define borneENB 5    // Broche ENB du L298N connectée à la broche D5 de l'Arduino (PWM possible)
+#define tolerance 25  // 0 avant
 // Définition des commandes de mouvement
-const char MARCHE_AVANT   = 'A';
-const char MARCHE_ARRIERE = 'R';
-const char STOP           = 'S'; // Ajout d'une commande STOP
+const char MARCHE_AVANT = 'R';
+const char MARCHE_ARRIERE = 'A';
 
-int vitesseActuelleGauche = 0; // Utiliser des noms de variables plus descriptifs
-int vitesseActuelleDroite = 0;
-
-// Déclaration des fonctions
+// Déclaration des fonctions liées aux moteurs
 void configurerSensDeRotationPontA(char sensDeRotation);
 void changeVitesseMoteurPontA(int vitesse);
 void configurerSensDeRotationPontB(char sensDeRotation);
 void changeVitesseMoteurPontB(int vitesse);
-void avancer(float facteur);
-void reculer(float facteur);
-void tournerGauche(float facteur);
-void tournerDroite(float facteur);
-void tournerGaucheExtremite(float facteur);
-void tournerDroiteExtremite(float facteur);
-void arreter(); // Ajout d'une fonction arreter
+void arreter();
 
 /////////////////////////////////////////////////////////////////////
-//   Variables globales et fonctions pour le capteur de couleur    //
+//    Variables globales et fonctions pour le suivi de ligne       //
 /////////////////////////////////////////////////////////////////////
 
-// affichage debug 
+// Définition des broches pour les capteurs n&b
+const int capteur1 = 34;  // Capteur gauche 1
+const int capteur2 = 35;  // Capteur gauche 2
+const int capteur3 = 36;  // Capteur gauche 3
+const int capteur4 = 37;  // Capteur gauche 4
+const int capteur5 = 38;  // Capteur droit 1
+const int capteur6 = 39;  // Capteur droit 2
+
+// Définition des variables du capteur de suivit de ligne
+
+QTRSensors qtr;
+const uint8_t SensorCount = 6;
+uint16_t sensorValues[SensorCount];
+int lastError = 0;
+
+// Variables liées à l'asservissement
+const int MAX_SPEED = 190;  //220 ou 200 avant
+const float Kp = 3;         //2 avant
+const float Ki = 0;
+const float Kd = 3;
+
+/////////////////////////////////////////////////////////////////////
+//       Variables globales et fonctions pour les couleurs         //
+/////////////////////////////////////////////////////////////////////
+
+// Définition des broches pour les capteurs de couleurs
+#define S0 53   // sur borne digitale
+#define S1 52   // sur borne digitale
+#define S2 51   // sur borne digitale
+#define S3 50   // sur borne digitale
+#define OUTd 3  // sur borne attachInterrupt(2 ou 3)
+#define OUTg 2  // sur borne attachInterrupt(2 ou 3)
 bool debug = false;
+bool isBlue, isRed, isGreenD, isGreenG;
 
-// Calibration du blanc 
-int Ri = 0;
-int Bi = 0;
-int Vi = 0;
-float limBlanc = 0.8;
-float limNoir = 0.3;
+const int frequence = 2;  // choisir 2%, 20% ou 100%
+float periode = 0;        // en microsecondes
+float attente = 0;        // en millisecondes
+int g_flag = 0;
 
-// Paramètres attachInterrupt
-int temps = 1200;
-int periode = 1000000;
-
-// Capteur gauche
-const int S0g = 29;
-const int S1g = 28;
-const int S2g = 27;
-const int S3g = 26;
-const int OUTg = 2;
-
-int Rg = 0;
-int Vg = 0;
-int Bg = 0;
 int g_countg = 0;
 int g_arrayg[3];
-int g_flagg = 0;
-bool isBlueG = false;
-bool isRedG = false;
-bool isGreenG = false;
-bool isWhiteG = false;
-bool isBlackG = false;
+float g_SFg[3];
+int Rg, Gg, Bg, R0g, G0g, B0g;
 
-int Rg0 = 0;
-int Vg0 = 0;
-int Bg0 = 0;
-
-// Capteur droit
-const int S0d = 49;
-const int S1d = 48;
-const int S2d = 47;
-const int S3d = 46;
-const int OUTd = 3;
-int Rd = 0;
-int Vd = 0;
-int Bd = 0;
 int g_countd = 0;
 int g_arrayd[3];
-int g_flagd = 0;
-bool isBlueD = false;
-bool isRedD = false;
-bool isGreenD = false;
-bool isWhiteD = false;
-bool isBlackD = false;
+float g_SFd[3];
+int Rd, Gd, Bd, R0d, G0d, B0d;
 
-int Rd0 = 0;
-int Vd0 = 0;
-int Bd0 = 0;
 
-// Déclaration des fonctions
-void calibration();
-bool isRed(int R,int V,int B);
-bool isGreen(int R,int V,int B);
-bool isBlue(int R,int V,int B);
-bool isWhite(int R,int V,int B);
-bool isBlack(int R, int V, int B);
-void TSC_Initd();
-void TSC_FilterColord(int Level01, int Level02);
-void TSC_Countd();
-void TSC_WBd(int Level0, int Level1);
-void TSC_Callbackd();
-void captLumD();
-void setupd();
-void TSC_Initg();
-void TSC_FilterColorg(int Level01, int Level02);
-void TSC_Countg();
-void TSC_WBg(int Level0, int Level1);
-void TSC_Callbackg();
-void captLumG();
-void setupg();
-void mesureg(); // Fonction à appeler pour mesurer la couleur à gauche
-void mesured(); // Fonction à appeler pour mesurer la couleur à droite
 
 /////////////////////////////////////////////////////////////////////
 //                      Programme principal                        //
 /////////////////////////////////////////////////////////////////////
 
+
 void setup() {
   Serial.begin(9600);
 
-  //Configuration des capteurs
+  // Configuration des capteurs de suivi de ligne
+  qtr.setTypeRC();
+  qtr.setSensorPins((const uint8_t[]){
+                      capteur1, capteur2, capteur3, capteur4, capteur5, capteur6 },
+                    SensorCount);
+  qtr.setEmitterPin(4);
 
-  qtrd.setTypeRC();
-  qtrd.setSensorPins((const uint8_t[]){capteurD1, capteurD2, capteurD3, capteurD4}, SensorCount);
-  qtrd.setEmitterPin(31);
-  
-  qtrg.setTypeRC();
-  qtrg.setSensorPins((const uint8_t[]){capteurG1, capteurG2, capteurG3, capteurG4}, SensorCount);
-  qtrg.setEmitterPin(31);
+  pinMode(LED_BUILTIN, OUTPUT);
 
 
-  // Configuration des broches des capteurs en entrée
-  pinMode(capteurG1, INPUT);
-  pinMode(capteurG2, INPUT);
-  pinMode(capteurG3, INPUT);
-  pinMode(capteurG4, INPUT);
-  pinMode(capteurD1, INPUT);
-  pinMode(capteurD2, INPUT);
-  pinMode(capteurD3, INPUT);
-  pinMode(capteurD4, INPUT);
+  // Calibration des capteurs
+
+  TSC_Init();
+  Timer1.initialize(periode);  // periode en microsecondes
+  Timer1.attachInterrupt(TSC_Callback);
+  attachInterrupt(digitalPinToInterrupt(OUTg), TSC_Countg, RISING);
+  attachInterrupt(digitalPinToInterrupt(OUTd), TSC_Countd, RISING);
+  delay(attente);
+
+  // Calibration gauche
+  R0g = g_arrayg[0];
+  G0g = g_arrayg[1];
+  B0g = g_arrayg[2];
+  g_SFg[0] = 255.0 / g_arrayg[0];  // valeur R
+  g_SFg[1] = 255.0 / g_arrayg[1];  // valeur G
+  g_SFg[2] = 255.0 / g_arrayg[2];  // valeur B
+
+  // Calibration droite
+  R0d = g_arrayd[0];
+  G0d = g_arrayd[1];
+  B0d = g_arrayd[2];
+  g_SFd[0] = 255.0 / g_arrayd[0];  // valeur R
+  g_SFd[1] = 255.0 / g_arrayd[1];  // valeur G
+  g_SFd[2] = 255.0 / g_arrayd[2];  // valeur B
+
+  digitalWrite(LED_BUILTIN, HIGH);
+
+  Serial.println("Début de la calibration des capteurs de suivit de ligne");
+
+  for (uint16_t i = 0; i < 400; i++) {
+    qtr.calibrate();
+  }
+
+  digitalWrite(LED_BUILTIN, LOW);
 
   // Configuration des broches des moteurs en sortie
   pinMode(borneENA, OUTPUT);
@@ -188,90 +141,114 @@ void setup() {
   pinMode(borneIN3, OUTPUT);
   pinMode(borneIN4, OUTPUT);
   pinMode(borneENB, OUTPUT);
-
-  // Configuration des broches des capteurs de couleur
-  TSC_Initg();
-  TSC_Initd();
-  calibration();
 }
 
 void loop() {
-  // Lecture de l'état des capteurs
-  int G4 = digitalRead(capteurG1);
-  int G3 = digitalRead(capteurG2);
-  int G2 = digitalRead(capteurG3);
-  int G1 = digitalRead(capteurG4);
-  int D4 = digitalRead(capteurD1);
-  int D3 = digitalRead(capteurD2);
-  int D2 = digitalRead(capteurD3);
-  int D1 = digitalRead(capteurD4);
 
-  // Affichage des valeurs des capteurs pour le débogage
-  Serial.print("Capteurs: G4="); Serial.print(G4);
-  Serial.print(" G3="); Serial.print(G3);
-  Serial.print(" G2="); Serial.print(G2);
-  Serial.print(" G1="); Serial.print(G1);
-  Serial.print(" D4="); Serial.print(D4);
-  Serial.print(" D3="); Serial.print(D3);
-  Serial.print(" D2="); Serial.print(D2);
-  Serial.print(" D1="); Serial.print(D1);
-  Serial.println();
 
-  // Logique de mouvement basée sur les capteurs
-  if (D1 && D2 && D3 && D4 && G1 && G2 && G3 && G4) {
-    Serial.println("STOP");
+  //Lecture et affichage des valeurs
+  qtr.read(sensorValues);
+  int position = qtr.readLineBlack(sensorValues);
+
+  if (debug) {
+    // print the sensor values as numbers from 0 to 2500, where 0 means maximum
+    // reflectance and 2500 means minimum reflectance
+    for (uint8_t i = 0; i < SensorCount; i++) {
+      Serial.print(sensorValues[i]);
+      Serial.print('\t');
+    }
+    Serial.print('\t');
+
+    Serial.print('\t');
+    Serial.print('\t');
+    Serial.print('\t');
+
+
+    Serial.print(position);
+
+    Serial.println();
+  }
+
+  unsigned int sensors[6];
+
+  if (sensorValues[0] >= 150 && sensorValues[5] >= 150) {
+    Serial.print("STOP");
     arreter();
-    mesured();
-    mesureg();
-    mesured();
-    mesureg();
-    if(isGreenD && isWhiteG){
-      
+    delay(1000);
+
+    capterCouleur();
+
+    capterCouleur();
+    if (isGreenD && !isGreenG) {
+      Serial.print("VERT PARTOUT");
+    } else if (isGreenG && !isGreenD) {
+      Serial.print("VERT GAUCHE");
+    } else if (isGreenD && isGreenG) {
+      Serial.print("VERT DROITE");
+    } else if (!isGreenD && !isGreenG) {
+      Serial.print("VERT NULPART");
     }
-    else if(isGreenG && isWhiteD){
-      
+
+  } else if (sensorValues[0] <= 50 && sensorValues[1] <= 50 && sensorValues[2] <= 50 && sensorValues[3] <= 50 && sensorValues[4] <= 50 && sensorValues[5] <= 50) {
+    configurerSensDeRotationPontA(MARCHE_AVANT);
+    configurerSensDeRotationPontB(MARCHE_AVANT);
+    changeVitesseMoteurPontA(MAX_SPEED);
+    changeVitesseMoteurPontB(MAX_SPEED);
+  } else {
+
+    // Get the position of the line.  Note that we *must* provide the "sensors"
+    // argument to readLine() here, even though we are not interested in the
+    // individual sensor readings          POSITION DEJA DEFINIE PLUS HAUT...
+
+    int m1Speed = 0;
+    int m2Speed = 0;
+
+    if (position > 2500 - tolerance && position < 2500 + tolerance) {
+      m1Speed = MAX_SPEED;
+      m2Speed = MAX_SPEED;
+    } else {
+
+      // Our "error" is how far we are away from the center of the line, which
+      // corresponds to position 2500.
+      int error = position - 2500;
+
+      // Get motor speed difference using proportional and derivative PID terms
+      // (the integral term is generally not very useful for line following).
+      // Here we are using a proportional constant of 1/4 and a derivative
+      // constant of 6, which should work decently for many Zumo motor choices.
+      // You probably want to use trial and error to tune these constants for
+      // your particular Zumo and line course.
+      int speedDifference = Kp * error + Ki * (error + lastError) + Kd * (error - lastError);
+
+      lastError = error;
+
+
+
+      // Get individual motor speeds.  The sign of speedDifference
+      // determines if the robot turns left or right.
+
+
+      m1Speed = MAX_SPEED + speedDifference;
+      m2Speed = MAX_SPEED - speedDifference;
     }
-    else if(isGreenD && isGreenG){
-      
-    }
-    else if(isWhiteD && isWhiteG){
-      
-    }
-  } else if (D4) {
-     Serial.println("Tourner à droite 100%");
-     //while (digitalRead(capteurG2) == 0 && digitalRead(capteurG1) == 0 && digitalRead(capteurG3) == 0 && digitalRead(capteurG4) == 0) {
-        tournerdroite(100);
-      //}
-   } else if (G4) {
-     Serial.println("Tourner à gauche 100%");
-     //while (digitalRead(capteurD2) == 0 && digitalRead(capteurD1) == 0 && digitalRead(capteurD3) == 0 && digitalRead(capteurD4) == 0) {
-        tournergauche(100);
-      //}
-   } else if (G3) {
-     Serial.println("Tourner à gauche 90%");
-     tournergauche(95);
-   } else if (D3) {
-     Serial.println("Tourner à droite 90%");
-     tournerdroite(95);
-   } else if (G2) {
-     Serial.println("Tourner à gauche 80%");
-     tournergauche(92);
-   } else if (D2) {
-     Serial.println("Tourner à droite 80%");
-     tournerdroite(92);
-   } else if (G1) {
-     Serial.println("Tourner à gauche 70%");
-     tournergauche(92);
-   } else if (D1) {
-     Serial.println("Tourner à droite 70%");
-     tournerdroite(92);
-   } else if (G1 && D1) {
-     Serial.println("Avancer");
-     avancer(87);
-   } else {
-     Serial.println("Avancer");
-     avancer(87);
-   }
+
+    configurerSensDeRotationPontA(MARCHE_AVANT);
+    configurerSensDeRotationPontB(MARCHE_AVANT);
+
+    if (m1Speed < 0)
+      configurerSensDeRotationPontB(MARCHE_ARRIERE);
+    m1Speed = abs(m1Speed);
+    if (m2Speed < 0)
+      configurerSensDeRotationPontA(MARCHE_ARRIERE);
+    m2Speed = abs(m2Speed);
+    if (m1Speed > MAX_SPEED)
+      m1Speed = MAX_SPEED;
+    if (m2Speed > MAX_SPEED)
+      m2Speed = MAX_SPEED;
+
+    changeVitesseMoteurPontA(m2Speed);
+    changeVitesseMoteurPontB(m1Speed);
+  }
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -288,63 +265,14 @@ void arreter() {
   analogWrite(borneENB, 0);
 }
 
-void arriere(float facteur) {
-  facteur = facteur / 100;
-  configurerSensDeRotationPontA(MARCHE_AVANT);
-  changeVitesseMoteurPontA(vitesseMaximale*facteur);
-  configurerSensDeRotationPontB(MARCHE_AVANT);
-  changeVitesseMoteurPontB(vitesseMaximale*facteur);
-}
-
-void avancer(float facteur) {
-  facteur = facteur / 100;
-  configurerSensDeRotationPontA(MARCHE_ARRIERE);
-  changeVitesseMoteurPontA(vitesseMaximale*facteur);
-  configurerSensDeRotationPontB(MARCHE_ARRIERE);
-  changeVitesseMoteurPontB(vitesseMaximale*facteur);
-}
-
-void tournergauche(float facteur) {  
-  facteur = facteur / 100;
-  configurerSensDeRotationPontA(MARCHE_ARRIERE);
-  changeVitesseMoteurPontA(vitesseRotation*facteur);
-  configurerSensDeRotationPontB(MARCHE_AVANT);
-  changeVitesseMoteurPontB(vitesseRotation*facteur/2);
-  
-}
-void tournergaucheextremite(float facteur) {  
-  facteur = facteur / 100;
-  configurerSensDeRotationPontA(MARCHE_ARRIERE);
-  changeVitesseMoteurPontA(vitesseRotation * facteur);
-  configurerSensDeRotationPontB(MARCHE_AVANT);
-  changeVitesseMoteurPontB(vitesseRotation * facteur * 0.7);
-}
-
-void tournerdroite(float facteur) {  
-  facteur = facteur / 100;
-  configurerSensDeRotationPontA(MARCHE_AVANT);
-  changeVitesseMoteurPontA(vitesseRotation*facteur/2);
-  configurerSensDeRotationPontB(MARCHE_ARRIERE);
-  changeVitesseMoteurPontB(vitesseRotation*facteur);
-  
-}
-
-void tournerdroiteextremite(float facteur) {  
-  facteur = facteur / 100;
-
-  configurerSensDeRotationPontA(MARCHE_AVANT);
-  changeVitesseMoteurPontA(vitesseRotation * facteur * 0.7);
-  configurerSensDeRotationPontB(MARCHE_ARRIERE);
-  changeVitesseMoteurPontB(vitesseRotation * facteur);
-}
 
 void configurerSensDeRotationPontA(char sensDeRotation) {
   if (sensDeRotation == MARCHE_AVANT) {
-    digitalWrite(borneIN1, HIGH);
-    digitalWrite(borneIN2, LOW);
-  } else {
     digitalWrite(borneIN1, LOW);
     digitalWrite(borneIN2, HIGH);
+  } else {
+    digitalWrite(borneIN1, HIGH);
+    digitalWrite(borneIN2, LOW);
   }
 }
 
@@ -354,11 +282,11 @@ void changeVitesseMoteurPontA(int vitesse) {
 
 void configurerSensDeRotationPontB(char sensDeRotation) {
   if (sensDeRotation == MARCHE_AVANT) {
-    digitalWrite(borneIN3, HIGH);
-    digitalWrite(borneIN4, LOW);
-  } else {
     digitalWrite(borneIN3, LOW);
     digitalWrite(borneIN4, HIGH);
+  } else {
+    digitalWrite(borneIN3, HIGH);
+    digitalWrite(borneIN4, LOW);
   }
 }
 
@@ -367,380 +295,165 @@ void changeVitesseMoteurPontB(int vitesse) {
 }
 
 /////////////////////////////////////////////////////////////////////
-//              Fonctions pour le capteur de couleur               //
+//                   Fonctions pour les couleurs                   //
 /////////////////////////////////////////////////////////////////////
 
-void calibration() {
-  Timer1.initialize();
-  Timer1.attachInterrupt(TSC_Callbackd);
-  attachInterrupt(digitalPinToInterrupt(OUTd), TSC_Countd, RISING);
-  delay(2 * temps);
-  Rd0 = g_arrayd[0]; // valeur R
-  Vd0 = g_arrayd[1] ; // valeur V
-  Bd0 = g_arrayd[2] ; // valeur B
-  Timer1.detachInterrupt();
-  detachInterrupt(OUTd);
-  Serial.println("Calibration droite");
-  Serial.println(Rd0);
-  Serial.println(Vd0);
-  Serial.println(Bd0);
-
-  Timer1.initialize();
-  Timer1.attachInterrupt(TSC_Callbackg);
-  attachInterrupt(digitalPinToInterrupt(OUTg), TSC_Countg, RISING);
-  delay(2 * temps);
-  Timer1.detachInterrupt();
-  detachInterrupt(OUTg);
-  Serial.println("Calibration gauche");
-  Rg0 = g_arrayg[0]; // valeur R
-  Vg0 = g_arrayg[1] ; // valeur V
-  Bg0 = g_arrayg[2] ; // valeur B
-  Serial.println(Rg0);
-  Serial.println(Vg0);
-  Serial.println(Bg0);
-  Ri = min(Rg0, Rd0);
-  Vi = min(Vg0, Vd0);
-  Bi = min(Bg0, Bd0);
-  Serial.println("Calibration blanc :");
-  Serial.println(Ri);
-  Serial.println(Vi);
-  Serial.println(Bi);
-}
-
-// détection des couleurs
-bool isRed(int R,int V,int B) {
-  float rp = float(R)/float(Ri);
-  float vp = float(V)/float(Vi);
-  float bp = float(B)/float(Bi);
-  bool isb = rp < limNoir && vp < limNoir && bp < limNoir;
-  bool isw = rp > limBlanc && vp > limBlanc && bp > limBlanc;
-  return (rp > vp && rp > bp && !isb && !isw);
-}
-
-bool isGreen(int R,int V,int B) {
-  float rp = float(R)/float(Ri);
-  float vp = float(V)/float(Vi);
-  float bp = float(B)/float(Bi);
-  bool isb = rp < limNoir && vp < limNoir && bp < limNoir;
-  bool isw = rp > limBlanc && vp > limBlanc && bp > limBlanc;
-  return (vp > rp && vp > bp && !isb && !isw);
-}
-
-bool isBlue(int R,int V,int B) {
-  float rp = float(R)/float(Ri);
-  float vp = float(V)/float(Vi);
-  float bp = float(B)/float(Bi);
-  bool isb = rp < limNoir && vp < limNoir && bp < limNoir;
-  bool isw = rp > limBlanc && vp > limBlanc && bp > limBlanc;
-  return (bp > rp && bp > vp && !isb && !isw);
-}
-
-bool isWhite(int R,int V,int B) {
-  float rp = float(R)/float(Ri);
-  float vp = float(V)/float(Vi);
-  float bp = float(B)/float(Bi);
-  bool isb = rp < limNoir && vp < limNoir && bp < limNoir;
-  bool isw = rp > limBlanc && vp > limBlanc && bp > limBlanc;
-  return (isw);
-}
-
-bool isBlack(int R, int V, int B){
-  float rp = float(R)/float(Ri);
-  float vp = float(V)/float(Vi);
-  float bp = float(B)/float(Bi);
-  bool isb = rp < limNoir && vp < limNoir && bp < limNoir;
-  bool isw = rp > limBlanc && vp > limBlanc && bp > limBlanc;
-  return (isb);
-}
-
-// fonctions pour capteur droit
-void TSC_Initd()
-{
-  pinMode(S0d, OUTPUT);
-  pinMode(S1d, OUTPUT);
-  pinMode(S2d, OUTPUT);
-  pinMode(S3d, OUTPUT);
+void TSC_Init() {
+  pinMode(S0, OUTPUT);
+  pinMode(S1, OUTPUT);
+  pinMode(S2, OUTPUT);
+  pinMode(S3, OUTPUT);
+  pinMode(OUTg, INPUT);
   pinMode(OUTd, INPUT);
-  digitalWrite(S0d, LOW);
-  digitalWrite(S1d, HIGH);
+  switch (frequence) {
+    case 2:
+      digitalWrite(S0, LOW);
+      digitalWrite(S1, HIGH);
+      periode = 1000000;
+      break;
+    case 20:
+      digitalWrite(S0, HIGH);
+      digitalWrite(S1, LOW);
+      periode = 100000;
+      break;
+    case 100:
+      digitalWrite(S0, HIGH);
+      digitalWrite(S1, HIGH);
+      periode = 20000;
+      break;
+  }
+  attente = periode * 4 / 1000;
 }
-
-void TSC_FilterColord(int Level01, int Level02)
-{
+void TSC_FilterColor(int Level01, int Level02) {
   if (Level01 != 0)
     Level01 = HIGH;
   if (Level02 != 0)
     Level02 = HIGH;
-  digitalWrite(S2d, Level01);
-  digitalWrite(S3d, Level02);
+  digitalWrite(S2, Level01);
+  digitalWrite(S3, Level02);
 }
-
-void TSC_Countd()
-{
-  g_countd ++;
+void TSC_Countg() {
+  g_countg++;
 }
-
-void TSC_WBd(int Level0, int Level1) // Balance des blancs
-{
-  g_countd = 0;
-  g_flagd ++;
-  TSC_FilterColord(Level0, Level1);
-  Timer1.setPeriod(periode);
+void TSC_Countd() {
+  g_countd++;
 }
-
-void TSC_Callbackd()
-{
-  switch (g_flagd)
-  {
+void TSC_Callback() {
+  switch (g_flag) {
     case 0:
-      if (debug) {
-        Serial.println("->WB Start droite");
-      }
-      TSC_WBd(LOW, LOW); // Filtre sans rouge
+      if (debug) Serial.println("->WB Start");
+      TSC_WB(LOW, LOW);  // Filtre sans rouge
       break;
     case 1:
       if (debug) {
-        Serial.print("->Frequency R=");
+        Serial.print("->Left Frequency R=");
+        Serial.print(g_countg);
+        Serial.print("    |->Right Frequency R=");
         Serial.println(g_countd);
       }
+      g_arrayg[0] = g_countg;
       g_arrayd[0] = g_countd;
-      TSC_WBd(HIGH, HIGH); // Filtre sans vert
+      TSC_WB(HIGH, HIGH);  // Filtre sans vert
       break;
     case 2:
       if (debug) {
-        Serial.print("->Frequency V=");
+        Serial.print("->Left Frequency G=");
+        Serial.print(g_countg);
+        Serial.print("    |->Right Frequency G=");
         Serial.println(g_countd);
       }
+      g_arrayg[1] = g_countg;
       g_arrayd[1] = g_countd;
-      TSC_WBd(LOW, HIGH); // Filtre sans bleu
+      TSC_WB(LOW, HIGH);  // Filtre sans bleu
       break;
     case 3:
       if (debug) {
-        Serial.print("->Frequency B=");
+        Serial.print("->Left Frequency B=");
+        Serial.print(g_countg);
+        Serial.print("    |->Right Frequency B=");
         Serial.println(g_countd);
         Serial.println("->WB End");
       }
+      g_arrayg[2] = g_countg;
       g_arrayd[2] = g_countd;
-      TSC_WBd(HIGH, LOW); // Pas de filtre
+      TSC_WB(HIGH, LOW);  // Pas de filtre
       break;
     default:
+      g_countg = 0;
       g_countd = 0;
       break;
   }
 }
-
-void captLumD() {
-  g_flagd = 0;
-  Rd = g_arrayd[0]; 
-  Vd = g_arrayd[1]; 
-  Bd = g_arrayd[2];
-
-  Serial.print("Couleur détectée à droite : ");
-  if (isRed(Rd,Vd,Bd)) {
-    Serial.println("Rouge");
-    isRedD = true;
-    isGreenD = false;
-    isBlueD = false;
-    isWhiteD = false;
-    isBlackD = false;
-  }
-  else if (isGreen(Rd,Vd,Bd)) {
-    Serial.println("Vert");
-    isRedD = false;
-    isGreenD = true;
-    isBlueD = false;
-    isWhiteD = false;
-    isBlackD = false;
-  }
-  else if (isBlue(Rd,Vd,Bd)) {
-    Serial.println("Bleu");
-    isRedD = false;
-    isGreenD = false;
-    isBlueD = true;
-    isWhiteD = false;
-    isBlackD = false;
-  }
-  else if (isWhite(Rd,Vd,Bd)) {
-    Serial.println("Blanc");
-    isRedD = false;
-    isGreenD = false;
-    isBlueD = false;
-    isWhiteD = true;
-    isBlackD = false;
-  }
-  else if(isBlack(Rd,Vd,Bd)){
-    Serial.println("Noir");
-    isRedD = false;
-    isGreenD = false;
-    isBlueD = false;
-    isWhiteD = false;
-    isBlackD = true;
-  }
-  else {
-    Serial.println("Non fiable");
-  }
-}
-
-void setupd() {
-  Timer1.initialize();
-  Timer1.attachInterrupt(TSC_Callbackd);
-  attachInterrupt(digitalPinToInterrupt(OUTd), TSC_Countd, RISING);
-  delay(temps);
-  if (debug) {
-    for (int i = 0; i < 3; i++)
-      Serial.println(g_arrayd[i]);
-  }
-}
-
-// fonctions pour capteur gauche
-void TSC_Initg()
+void TSC_WB(int Level0, int Level1)  // Balance des blancs
 {
-  pinMode(S0g, OUTPUT);
-  pinMode(S1g, OUTPUT);
-  pinMode(S2g, OUTPUT);
-  pinMode(S3g, OUTPUT);
-  pinMode(OUTg, INPUT);
-  digitalWrite(S0g, LOW);
-  digitalWrite(S1g, HIGH);
-}
-
-void TSC_FilterColorg(int Level01, int Level02)
-{
-  if (Level01 != 0)
-    Level01 = HIGH;
-  if (Level02 != 0)
-    Level02 = HIGH;
-  digitalWrite(S2g, Level01);
-  digitalWrite(S3g, Level02);
-}
-
-void TSC_Countg()
-{
-  g_countg ++;
-}
-
-void TSC_WBg(int Level0, int Level1) // Balance des blancs
-{
+  g_countd = 0;
   g_countg = 0;
-  g_flagg ++;
-  TSC_FilterColorg(Level0, Level1);
-  Timer1.setPeriod(periode);
+  g_flag++;
+  TSC_FilterColor(Level0, Level1);
 }
 
-void TSC_Callbackg()
-{
-  switch (g_flagg)
-  {
-    case 0:
-      if (debug) {
-        Serial.println("->WB Start gauche");
-      }
-      TSC_WBg(LOW, LOW); // Filtre sans rouge
-      break;
-    case 1:
-      if (debug) {
-        Serial.print("->Frequency R=");
-        Serial.println(g_countg);
-      }
-      g_arrayg[0] = g_countg;
-      TSC_WBg(HIGH, HIGH); // Filtre sans vert
-      break;
-    case 2:
-      if (debug) {
-        Serial.print("->Frequency V=");
-        Serial.println(g_countg);
-      }
-      g_arrayg[1] = g_countg;
-      TSC_WBg(LOW, HIGH); // Filtre sans bleu
-      break;
-    case 3:
-      if (debug) {
-        Serial.print("->Frequency B=");
-        Serial.println(g_countg);
-        Serial.println("->WB End");
-      }
-      g_arrayg[2] = g_countg;
-      TSC_WBg(HIGH, LOW); // Pas de filtre
-      break;
-    default:
-      g_countg = 0;
-      break;
-  }
-}
+void capterCouleur() {
+  g_flag = 0;
+  Rd = int(g_arrayd[0] * g_SFd[0]);
+  Gd = int(g_arrayd[1] * g_SFd[1]);
+  Bd = int(g_arrayd[2] * g_SFd[2]);
 
-void captLumG() {
-  g_flagg = 0;
-  Rg = g_arrayg[0];
-  Vg = g_arrayg[1];
-  Bg = g_arrayg[2];
+  Rg = int(g_arrayg[0] * g_SFg[0]);
+  Gg = int(g_arrayg[1] * g_SFg[1]);
+  Bg = int(g_arrayg[2] * g_SFg[2]);
 
   Serial.print("Couleur détectée à gauche : ");
-  if (isRed(Rg,Vg,Bg)) {
-    Serial.println("Rouge");
-    isRedG = true;
+  if (Rg > Gg && Rg > Bg) {
+    Serial.print("rouge");
+    isRed = true;
+    isBlue = false;
     isGreenG = false;
-    isBlueG = false;
-    isWhiteG = false;
-    isBlackG = false;
   }
-  else if (isGreen(Rg,Vg,Bg)) {
-    Serial.println("Vert");
-    isRedG = false;
+  if (Bg > Gg && Bg > Rg) {
+    Serial.print("bleu");
+    isRed = false;
+    isBlue = true;
+    isGreenG = false;
+  }
+  if (Gg > Rg && Gg > Bg) {
+    Serial.print("vert");
+    isRed = false;
+    isBlue = false;
     isGreenG = true;
-    isBlueG = false;
-    isWhiteG = false;
-    isBlackG = false;
   }
-  else if (isBlue(Rg,Vg,Bg)) {
-    Serial.println("Bleu");
-    isRedG = false;
-    isGreenG = false;
-    isBlueG = true;
-    isWhiteG = false;
-    isBlackG = false;
+  Serial.print("    Couleur détectée à droite : ");
+  if (Rd > Gd && Rd > Bd) {
+    Serial.println("rouge");
+    isRed = true;
+    isBlue = false;
+    isGreenD = false;
   }
-
-  else if (isWhite(Rg,Vg,Bg)) {
-    Serial.println("Blanc");
-    isRedG = false;
-    isGreenG = false;
-    isBlueG = false;
-    isWhiteG = true;
-    isBlackG = false;
+  if (Bd > Gd && Bd > Rd) {
+    Serial.println("bleu");
+    isRed = false;
+    isBlue = true;
+    isGreenD = false;
   }
-  else if (isBlack(Rg,Vg,Bg)) {
-    Serial.println("Blanc");
-    isRedG = false;
-    isGreenG = false;
-    isBlueG = false;
-    isWhiteG = false;
-    isBlackG = true;
+  if (Gd > Rd && Gd > Bd) {
+    Serial.println("vert");
+    isRed = false;
+    isBlue = false;
+    isGreenD = true;
   }
-  else {
-    Serial.println("Non fiable");
-  }
-}
-
-void setupg() {
-  Timer1.initialize();
-  Timer1.attachInterrupt(TSC_Callbackg);
-  attachInterrupt(digitalPinToInterrupt(OUTg), TSC_Countg, RISING);
-  delay(temps);
   if (debug) {
-    for (int i = 0; i < 3; i++)
-      Serial.println(g_arrayg[i]);
+    Serial.print("rouge gauche : ");
+    Serial.print(Rg);
+    Serial.print("    rouge droite : ");
+    Serial.println(Rd);
+    Serial.print("vert  gauche : ");
+    Serial.print(Gg);
+    Serial.print("    vert  droite : ");
+    Serial.println(Gd);
+    Serial.print("bleu  gauche : ");
+    Serial.print(Bg);
+    Serial.print("    bleu  droite : ");
+    Serial.println(Bd);
+    Serial.println("");
   }
-}
-
-// Fonction à appeler dans le main pour mesurer la couleur à droite
-void mesured() {
-  setupd();
-  captLumD();
-  delay(temps);
-}
-// Fonction à appeler dans le main pour mesurer la couleur à gauche
-void mesureg() {
-  setupg();
-  captLumG();
-  delay(temps);
+  //  delay(attente);
 }
